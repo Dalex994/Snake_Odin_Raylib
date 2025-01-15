@@ -12,6 +12,7 @@ TICK_RATE :: 0.15
 Vec2i :: [2]int
 MAX_SNAKE_LENGTH :: GRID_WIDTH*GRID_WIDTH
 
+
 snake: [MAX_SNAKE_LENGTH]Vec2i
 snake_length: int
 tick_timer: f32 = TICK_RATE
@@ -19,6 +20,12 @@ snake_head_position: Vec2i
 move_direction : Vec2i
 game_over: bool
 food_pos: Vec2i
+best_score: int
+shake_offset: Vec2i = {5, 5}
+shake_timer : f32
+shake_amount: f32
+
+
 
 place_food :: proc() {
     occupied: [GRID_WIDTH][GRID_WIDTH]bool
@@ -42,6 +49,7 @@ place_food :: proc() {
 }
 
 restart :: proc() {
+
     start_head_pos := Vec2i {GRID_WIDTH/2, GRID_WIDTH/2}
     snake[0] = start_head_pos
     snake[1] = start_head_pos - {0,1}
@@ -53,8 +61,12 @@ restart :: proc() {
 }
 
 main :: proc() {
+    icon := rl.LoadImage("assets/head.png")
+
     rl.SetConfigFlags({.VSYNC_HINT})
+    rl.HideCursor()
     rl.InitWindow(WINDOW_SIZE, WINDOW_SIZE, "Snake Game with Odin")
+    rl.SetWindowIcon(icon)
     rl.InitAudioDevice()
 
     restart()
@@ -65,9 +77,16 @@ main :: proc() {
     tail_sprite := rl.LoadTexture("assets/tail.png")
 
     eat_sound := rl.LoadSound("assets/eat.wav")
-    crash_sound := rl.LoadSound("assets/crash.wav")
+    game_over_sound := rl.LoadSound("assets/game-over.mp3")
+    game_music := rl.LoadMusicStream("assets/retro.mp3")
+
+    rl.PlayMusicStream(game_music)
+
 
     for !rl.WindowShouldClose() {
+
+        rl.UpdateMusicStream(game_music)
+
         if rl.IsKeyDown(.UP) {
             move_direction = {0, -1}
         }
@@ -82,11 +101,21 @@ main :: proc() {
         }
 
         if game_over {
+            shake_timer -= rl.GetFrameTime()
+
             if rl.IsKeyPressed(.ENTER) {
                 restart()
+                rl.PlayMusicStream(game_music)
+
             }
         } else {
             tick_timer -= rl.GetFrameTime()
+
+        }
+
+        if shake_timer >= 0 {
+            shake_amount = math.sin_f32(f32(10*shake_offset.x)) + shake_timer
+
         }
 
         if tick_timer <= 0 {
@@ -94,18 +123,20 @@ main :: proc() {
             snake[0] = snake[0] + move_direction
             head_pos := snake[0]
 
-            if head_pos.x < 0 || head_pos.y < 0 || head_pos.x >= GRID_WIDTH || head_pos.y >= GRID_WIDTH {
+            //TODO: optimize this mess !
+            if head_pos.x < 0 || head_pos.y < 0 || head_pos.x > GRID_WIDTH || head_pos.y > GRID_WIDTH {
                 game_over = true
-                rl.PlaySound(crash_sound)
-
+                rl.PlaySound(game_over_sound)
             }
+
 
             for i in 1..<snake_length {
                 cur_pos := snake[i]
                 if cur_pos == head_pos {
-                    game_over = true
-                    rl.PlaySound(crash_sound)
-
+                    if snake[0] != snake[1] {
+                        game_over = true
+                        rl.PlaySound(game_over_sound)
+                    }
                 }
                 snake[i] = next_part_pos
                 next_part_pos = cur_pos
@@ -166,14 +197,24 @@ main :: proc() {
             rl.DrawTexturePro(part_sprite, source, dest, { CELL_SIZE, CELL_SIZE } * 0.5, rot, rl.WHITE)
         }
 
-        if game_over {
-            rl.DrawText("Game Over !", 4, 4, 25, rl.RED)
-            rl.DrawText("Press Enter to play again", 4, 30, 15, rl.BLACK)
-        }
-
         score := snake_length -3
+        if score > best_score {
+            best_score = score
+        }
+        best_score_str := fmt.ctprintf("Best Score: %v", best_score)
         score_str := fmt.ctprintf("Your Score: %v", score)
         rl.DrawText(score_str, 4, CANVAS_SIZE - 14, 10, rl.GRAY)
+
+        fps := f16(rl.GetFPS())
+        fps_str:= fmt.ctprintf("FPS: %v", fps)
+        rl.DrawText(fps_str, CANVAS_SIZE - 50, CANVAS_SIZE - 14, 10, rl.BLACK)
+
+        if game_over {
+            rl.StopMusicStream(game_music)
+            rl.DrawText("Game Over !", 4, 4, 25, rl.RED)
+            rl.DrawText("Press Enter to play again", 4, 30, 15, rl.BLACK)
+            rl.DrawText(best_score_str, 10, 50, 13, rl.BLUE)
+        }
 
         rl.EndMode2D()
         rl.EndDrawing()
@@ -186,7 +227,9 @@ main :: proc() {
     rl.UnloadTexture(tail_sprite)
 
     rl.UnloadSound(eat_sound)
-    rl.UnloadSound(crash_sound)
+    rl.UnloadSound(game_over_sound)
+
+    rl.UnloadMusicStream(game_music)
 
     rl.CloseAudioDevice()
     rl.CloseWindow()
